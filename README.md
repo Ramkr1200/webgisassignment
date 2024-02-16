@@ -5,22 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/turf@6.3.0/turf.min.js"></script>
-<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
-<meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
-  
+  <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
+  <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-ajax/2.1.0/leaflet.ajax.min.js"></script>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
   <title>Web Mapping Application</title>
   <style>
     body {
       padding: 20px;
     }
-
     #map {
       height: 400px;
     }
-
     .btn-container {
       margin-top: 10px;
     }
@@ -28,10 +26,8 @@
 </head>
 <body>
   <div class="container">
-    <h1 class="mt-4 mb-4">Spatial analaysis Application </h1>
-    
+    <h1 class="mt-4 mb-4">Spatial analysis Application</h1>
     <div id="map"></div>
-
     <div class="btn-container">
       <button class="btn btn-primary" onclick="togglePopupLayer()">Toggle Popup Layer</button>
       <button class="btn btn-success" onclick="applyBuffer()">Apply Buffer</button>
@@ -41,6 +37,7 @@
 
   <script>
     var map = L.map('map').setView([0, 0], 2);
+    var geojsonLayer1, geojsonLayer2;
 
     // Base Layers from GeoServer
 
@@ -125,63 +122,53 @@ L.control.layers(baseLayers,overlays).addTo(map);
 //SEARCH BUTTON   
 L.Control.geocoder().addTo(map);
 
-
-var geojsonLayer;
-// Function to toggle the GeoJSON layer's popup
 function togglePopupLayer() {
-  if (!geojsonLayer) {
-    // Load GeoJSON data
-    fetch('http://localhost:8080/geoserver/spatial_Analysis/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=spatial_Analysis%3Asubstation&maxFeatures=50&outputFormat=application%2Fjson')
-      .then(response => response.json())
-      .then(data => {
-        geojsonLayer = L.geoJSON(data, {
+      if (!geojsonLayer1 && !geojsonLayer2) {
+        geojsonLayer1 = L.geoJson.ajax('http://localhost:8080/geoserver/spatial_Analysis/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=spatial_Analysis%3Atransmission_grid&maxFeatures=50&outputFormat=application%2Fjson', {
           onEachFeature: function (feature, layer) {
             layer.bindPopup(feature.properties.name);
           }
         }).addTo(map);
-      })
-      .catch(error => console.error('Error loading GeoJSON:', error));
-  } else {
-       // Remove the GeoJSON layer if it exists
-    map.removeLayer(geojsonLayer);
-    geojsonLayer = null;
-  }
-}
-// Call the togglePopupLayer function
-togglePopupLayer();
 
-function applyBuffer() {
-      if (geojsonLayer) {
-        // Perform buffer operation with TurfJS
-        var buffered = turf.buffer(geojsonLayer.toGeoJSON(), 0.1, {units: 'kilometers'});
-        // Add the buffered GeoJSON to the map
-        L.geoJSON(buffered).addTo(map);
+        geojsonLayer2 = L.geoJson.ajax('http://localhost:8080/geoserver/spatial_Analysis/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=spatial_Analysis%3Asubstation&maxFeatures=50&outputFormat=application%2Fjson', {
+          onEachFeature: function (feature, layer) {
+            layer.bindPopup(feature.properties.name);
+          }
+        }).addTo(map);
+      } else {
+        map.removeLayer(geojsonLayer1);
+        map.removeLayer(geojsonLayer2);
+        geojsonLayer1 = null;
+        geojsonLayer2 = null;
+      }
+    }
+
+    function applyBuffer() {
+      if (geojsonLayer2) {
+        geojsonLayer2.on('data:loaded', function () {
+          geojsonLayer2.eachLayer(function (layer) {
+            var buffered = turf.buffer(layer.toGeoJSON(), 500, { units: 'meters' });
+            L.geoJson(buffered).addTo(map);
+          });
+        });
+      } else {
+        console.error('GeoJSON Layer 2 is not defined or has no data.');
       }
     }
 
     function applyClip() {
-      // Load another GeoJSON layer (or you can use the existing one if it's available)
-      fetch('http://localhost:8080/geoserver/spatial_Analysis/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=spatial_Analysis%3Aroad_network&maxFeatures=50&outputFormat=application%2Fjson')
-        .then(response => response.json())
-        .then(anotherGeoJSONLayer => {
-          if (geojsonLayer && anotherGeoJSONLayer) {
-            // Perform clip operation with TurfJS
-            var clipped = turf.intersect(geojsonLayer.toGeoJSON(), anotherGeoJSONLayer);
-            // Add the clipped GeoJSON to the map
-            L.geoJSON(clipped).addTo(map);
-          }
-        })
-        .catch(error => console.error('Error loading another GeoJSON layer:', error));
+      if (geojsonLayer1) {
+        geojsonLayer1.on('data:loaded', function () {
+          geojsonLayer1.eachLayer(function (layer) {
+            var bbox = [-83.2, -26.23, 80.3, 27.31]; // Example bounding box
+            var clipped = turf.bboxClip(layer.toGeoJSON(), bbox);
+            L.geoJson(clipped).addTo(map);
+          });
+        });
+      } else {
+        console.error('GeoJSON Layer 1 is not defined or has no data.');
+      }
     }
   </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
